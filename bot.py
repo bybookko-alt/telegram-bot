@@ -189,18 +189,7 @@ def handle_message(token, message):
     if chat_type in {"group", "supergroup"}:
         return
 
-    if text == "/start":
-        send_message(
-            token,
-            chat_id,
-            "สวัสดีครับ! บอทพร้อมใช้งานแล้ว",
-        )
-    elif text == "/help":
-        send_message(
-            token,
-            chat_id,
-            "บอทนี้ใช้ดูแลกลุ่ม: ลบลิงก์ ลบแจ้งเตือนคนเข้า/ออก และส่งข้อความต้อนรับ",
-        )
+    return
 
 
 def main():
@@ -231,4 +220,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
