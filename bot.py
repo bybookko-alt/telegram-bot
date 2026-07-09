@@ -1,53 +1,55 @@
-import json
-import os
-import re
-import time
-import urllib.parse
-import urllib.request
-
-
-LINK_PATTERN = re.compile(
-    r"(https?://|www\.|t\.me/|telegram\.me/|@\w+|[a-z0-9-]+\.[a-z]{2,})",
-    re.IGNORECASE,
-)
-
-
-def load_env(path=".env"):
-    if not os.path.exists(path):
-        return
-
-    with open(path, "r", encoding="utf-8") as file:
-        for line in file:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
-def telegram_request(token, method, payload=None):
-    url = f"https://api.telegram.org/bot{token}/{method}"
-    data = None
-    headers = {}
-
-    if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    request = urllib.request.Request(url, data=data, headers=headers)
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def send_message(token, chat_id, text):
-    return telegram_request(
         token,
         "sendMessage",
-        {
-            "chat_id": chat_id,
-            "text": text,
-        },
+        payload,
     )
+
+
+def send_photo(token, chat_id, photo_url, caption, reply_markup=None, message_thread_id=None):
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_url,
+        "caption": caption,
+    }
+    if message_thread_id:
+        payload["message_thread_id"] = int(message_thread_id)
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
+    return telegram_request(token, "sendPhoto", payload)
+
+
+def get_welcome_buttons():
+    buttons = []
+    for number in range(1, 4):
+        text = os.environ.get(f"WELCOME_BUTTON_{number}_TEXT")
+        url = os.environ.get(f"WELCOME_BUTTON_{number}_URL")
+        if text and url:
+            buttons.append([{"text": text, "url": url}])
+
+    if not buttons:
+        return None
+
+    return {"inline_keyboard": buttons}
+
+
+def send_welcome_message(token, chat_id, message):
+    target_chat_id = os.environ.get("WELCOME_TARGET_CHAT_ID", chat_id)
+    target_thread_id = os.environ.get("WELCOME_TARGET_THREAD_ID")
+    welcome_message = os.environ.get(
+        "WELCOME_MESSAGE",
+        "ยินดีต้อนรับสมาชิกใหม่ครับ กรุณาอ่านกฎของกลุ่มก่อนโพสต์ข้อความ",
+    )
+    members = message.get("new_chat_members", [])
+    names = [member.get("first_name", "member") for member in members]
+    if names:
+        welcome_message = f"{welcome_message}\n\nสมาชิกใหม่: {', '.join(names)}"
+
+    photo_url = os.environ.get("WELCOME_PHOTO_URL")
+    buttons = get_welcome_buttons()
+    if photo_url:
+        return send_photo(token, target_chat_id, photo_url, welcome_message, buttons, target_thread_id)
+
+    return send_message(token, target_chat_id, welcome_message, target_thread_id)
 
 
 def delete_message(token, chat_id, message_id):
@@ -94,6 +96,10 @@ def is_join_or_leave_message(message):
     return bool(message.get("new_chat_members") or message.get("left_chat_member"))
 
 
+def is_join_message(message):
+    return bool(message.get("new_chat_members"))
+
+
 def try_delete_message(token, chat_id, message_id, chat_title, reason):
     print(f"{reason}. Deleting message_id={message_id} in chat={chat_title}.")
     try:
@@ -114,10 +120,19 @@ def handle_message(token, message):
 
     if chat_type in {"group", "supergroup"} and is_join_or_leave_message(message):
         try_delete_message(token, chat_id, message_id, chat_title, "Join/leave notice detected")
+        if is_join_message(message):
+            try:
+                send_welcome_message(token, chat_id, message)
+                print("Welcome message sent.")
+            except Exception as error:
+                print(f"Could not send welcome message: {error}")
         return
 
     if chat_type in {"group", "supergroup"} and has_link(message):
         try_delete_message(token, chat_id, message_id, chat_title, "Link detected")
+        return
+
+    if chat_type in {"group", "supergroup"}:
         return
 
     if text == "/start":
