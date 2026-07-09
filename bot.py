@@ -1,7 +1,53 @@
-        token,
-        "sendMessage",
-        payload,
-    )
+import json
+import os
+import re
+import time
+import urllib.parse
+import urllib.request
+
+
+LINK_PATTERN = re.compile(
+    r"(https?://|www\.|t\.me/|telegram\.me/|@\w+|[a-z0-9-]+\.[a-z]{2,})",
+    re.IGNORECASE,
+)
+
+
+def load_env(path=".env"):
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def telegram_request(token, method, payload=None):
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    data = None
+    headers = {}
+
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = urllib.request.Request(url, data=data, headers=headers)
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def send_message(token, chat_id, text, message_thread_id=None):
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+    }
+    if message_thread_id:
+        payload["message_thread_id"] = int(message_thread_id)
+
+    return telegram_request(token, "sendMessage", payload)
 
 
 def send_photo(token, chat_id, photo_url, caption, reply_markup=None, message_thread_id=None):
@@ -89,6 +135,14 @@ def has_link(message):
         if entity.get("type") in {"url", "text_link", "mention"}:
             return True
 
+    reply_markup = message.get("reply_markup", {})
+    for row in reply_markup.get("inline_keyboard", []):
+        for button in row:
+            if button.get("url"):
+                return True
+            if LINK_PATTERN.search(button.get("text", "")):
+                return True
+
     return False
 
 
@@ -139,18 +193,14 @@ def handle_message(token, message):
         send_message(
             token,
             chat_id,
-            "สวัสดีครับ! บอท tonngtan พร้อมใช้งานแล้ว\nถ้าอยู่ในกลุ่มและเป็นแอดมิน บอทจะลบข้อความที่มีลิงก์ให้ครับ",
+            "สวัสดีครับ! บอทพร้อมใช้งานแล้ว",
         )
     elif text == "/help":
         send_message(
             token,
             chat_id,
-            "คำสั่งที่ใช้ได้:\n/start - เริ่มใช้งานบอท\n/help - ดูคำสั่ง\n\nในกลุ่ม: บอทจะลบข้อความที่มีลิงก์ เช่น https://, www., t.me หรือ @username",
+            "บอทนี้ใช้ดูแลกลุ่ม: ลบลิงก์ ลบแจ้งเตือนคนเข้า/ออก และส่งข้อความต้อนรับ",
         )
-    elif text:
-        send_message(token, chat_id, f"คุณพิมพ์ว่า: {text}")
-    else:
-        send_message(token, chat_id, "ตอนนี้บอทรองรับข้อความตัวอักษรก่อนครับ")
 
 
 def main():
@@ -181,3 +231,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
