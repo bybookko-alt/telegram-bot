@@ -174,12 +174,6 @@ def handle_message(token, message):
 
     if chat_type in {"group", "supergroup"} and is_join_or_leave_message(message):
         try_delete_message(token, chat_id, message_id, chat_title, "Join/leave notice detected")
-        if is_join_message(message):
-            try:
-                send_welcome_message(token, chat_id, message)
-                print("Welcome message sent.")
-            except Exception as error:
-                print(f"Could not send welcome message: {error}")
         return
 
     if chat_type in {"group", "supergroup"} and has_link(message):
